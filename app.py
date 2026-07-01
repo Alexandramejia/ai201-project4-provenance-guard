@@ -1,17 +1,24 @@
 import uuid
 
 from flask import Flask, jsonify, request
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 
-from audit import get_log_entries, log_submission
+from audit import get_log_entries, log_appeal, log_submission
 from detector import detect
+from labels import generate_label
 
 app = Flask(__name__)
 
-# Placeholder label text. Real transparency labels come in a later milestone.
-PLACEHOLDER_LABEL = "Label logic not implemented yet."
+limiter = Limiter(
+    get_remote_address,
+    app=app,
+    storage_uri="memory://",
+)
 
 
 @app.route("/submit", methods=["POST"])
+@limiter.limit("10 per minute;100 per day")
 def submit():
     data = request.get_json(silent=True) or {}
     text = data.get("text")
@@ -28,6 +35,7 @@ def submit():
     confidence = result["confidence"]
     attribution = result["attribution"]
     status = "reviewed"
+    label = generate_label(attribution, confidence)
 
     log_submission(
         content_id=content_id,
@@ -44,10 +52,30 @@ def submit():
             "content_id": content_id,
             "attribution": attribution,
             "confidence": confidence,
-            "label": PLACEHOLDER_LABEL,
+            "label": label,
             "llm_score": llm_score,
             "style_score": style_score,
             "status": status,
+        }
+    )
+
+
+@app.route("/appeal", methods=["POST"])
+def appeal():
+    data = request.get_json(silent=True) or {}
+    content_id = data.get("content_id")
+    creator_reasoning = data.get("creator_reasoning")
+
+    if not content_id or not creator_reasoning:
+        return jsonify({"error": "Both 'content_id' and 'creator_reasoning' are required."}), 400
+
+    log_appeal(content_id=content_id, creator_reasoning=creator_reasoning)
+
+    return jsonify(
+        {
+            "content_id": content_id,
+            "status": "under_review",
+            "message": "Your appeal has been logged and is under review.",
         }
     )
 

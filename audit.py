@@ -40,6 +40,23 @@ def log_submission(content_id, creator_id, attribution, confidence, llm_score, s
     return entry
 
 
+def log_appeal(content_id, creator_reasoning):
+    """Append one creator appeal to the audit log."""
+    entry = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "content_id": content_id,
+        "creator_reasoning": creator_reasoning,
+        "status": "under_review",
+        "event_type": "appeal",
+    }
+
+    entries = _read_log()
+    entries.append(entry)
+    _write_log(entries)
+
+    return entry
+
+
 def get_log_entries():
     """Return every entry currently stored in the audit log."""
     return _read_log()
