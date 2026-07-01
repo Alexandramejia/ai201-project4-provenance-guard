@@ -152,3 +152,77 @@ groq_score       stylometric_score
        JSON response
         to the creator
 ```
+
+## Milestone 2: Detection Design, Transparency, and Appeals
+
+### 1. Detection Signals Explained
+
+#### Groq LLM Classification Signal
+
+This signal sends the submitted text to a Groq-hosted LLM and asks it to judge how AI-like the writing sounds, based on tone, structure, coherence, and style.
+
+The output is `groq_score`, a number between 0.0 and 1.0. A higher score means the LLM thinks the text looks more AI generated, and a lower score means it looks more human written.
+
+#### Stylometric Heuristics Signal
+
+This signal runs Python text statistics on the writing, like sentence length variation, vocabulary diversity, and punctuation patterns, without looking at meaning at all.
+
+The output is `stylometric_score`, also a number between 0.0 and 1.0. A higher score means the writing looks structurally uniform, which leans AI-like, and a lower score means the writing has more natural variation, which leans human-like.
+
+#### Combining the Scores
+
+The two scores get combined into one `confidence_score` by averaging them:
+
+```
+confidence_score = (groq_score + stylometric_score) / 2
+```
+
+A `groq_score` of 0.61 and a `stylometric_score` of 0.47 average out to 0.54, which is the same example already shown in the `/submit` response above. Averaging keeps either signal from forcing the final verdict on its own. If the LLM signal leans one way and the stylometric signal disagrees, the combined score gets pulled toward the middle, so the system ends up saying "uncertain" more often instead of confidently getting it wrong.
+
+### 2. Uncertainty Representation
+
+The combined `confidence_score` maps to one of three ranges:
+
+| Range | Result | Meaning |
+|---|---|---|
+| 0.70 - 1.00 | `likely_ai` | Both signals agree the writing looks AI generated, or one signal leans strongly AI and the other doesn't push back. |
+| 0.40 - 0.69 | `uncertain` | The signals disagree, or both are only weakly leaning one way. Not enough evidence to make a confident call. |
+| 0.00 - 0.39 | `likely_human` | Both signals agree the writing looks human written, or one signal leans strongly human and the other doesn't push back. |
+
+The `uncertain` range is kept wide on purpose. Calling a real human writer "AI" is worse than just admitting the system isn't sure, so it leans toward staying undecided.
+
+### 3. Transparency Labels
+
+These are the exact strings returned in the `label` field, based on `attribution_result`.
+
+`likely_ai` returns: "This writing shows strong signs of being AI generated."
+
+`likely_human` returns: "This writing shows strong signs of being written by a human."
+
+`uncertain` returns: "We're not confident enough to say whether this was written by AI or a human."
+
+Each label is written in plain language on purpose, since whoever reads it may not know what "confidence score" or "stylometric" even means. The label is what the platform actually shows a reader; `attribution_result` is only the internal category.
+
+### 4. Appeals Workflow
+
+The creator who submitted the content, identified by `creator_id`, is the one who can appeal a decision made about their own `content_id`. To appeal, they submit that `content_id` along with a `reason`, a free text explanation of why they think the result is wrong, for example "I wrote this myself, I just use a formal tone."
+
+The system adds that reason to the existing audit log entry for the content, and changes the entry's `status` from `reviewed` to `under_review`. Nothing about the original decision gets deleted or overwritten.
+
+Anyone checking `GET /log` sees the full original decision, meaning the scores, the label, and the result, right next to the appeal reason and the updated status. A reviewer never has to guess why something is under review, since the original evidence and the creator's pushback are both sitting in the same log entry.
+
+### 5. Edge Cases
+
+A very short submission, like a one or two sentence post, doesn't give the stylometric signal enough text to measure sentence length variation or vocabulary diversity. The `stylometric_score` becomes unreliable, and the combined confidence score ends up leaning too heavily on the Groq signal alone.
+
+Heavily AI-edited human writing is another tricky case. Someone might write a rough draft themselves and then ask an AI tool to polish the grammar and tone. The Groq signal may see "polished" writing and score it as AI-like, while the stylometric signal, which still reflects the human author's original sentence structure, scores it as human-like. The two signals disagree, so the system lands in `uncertain`, but it still can't tell a reviewer what actually happened.
+
+Non-native English speakers writing formally are a third edge case worth naming again here. Simpler sentence structure paired with very correct grammar can look uniform to both signals, even though it's a genuine human writing style. This is the same false positive scenario called out in Milestone 1, and it's part of why the `uncertain` range and appeal process exist in the first place.
+
+### 6. AI Tool Plan (Milestones 3-5)
+
+Milestone 3 covers the core implementation: `app.py`, `detector.py`, and `labels.py`. Prompts will focus on turning this planning doc directly into code, for example asking for the `/submit` route wired to `detector.py`, the two detection signal functions, the score-combining logic, and the `labels.py` mapping from Section 3. Testing will be manual `POST /submit` requests with a clearly AI-sounding sample, a clearly human sample, and a borderline sample, checking that each one lands in the range it should.
+
+Milestone 4 covers the audit log and appeals: `audit.py`, `/appeal`, and `/log`. Prompts will ask for the audit log storage, likely a JSON file or SQLite table, and the `/appeal` and `/log` routes, following the request and response shapes already defined in the API Surface section. Testing will mean submitting content, appealing it, then calling `GET /log` to confirm the same entry now shows `status: under_review` and the appeal reason, matching the workflow in Section 4.
+
+Milestone 5 covers edge cases, polish, and a final review. Prompts will target the edge cases from Section 5, for example adding a short-text guard for low-confidence stylometric input, or input validation for empty and missing fields. Testing will mean rerunning the Milestone 3 and 4 test cases plus the specific edge case inputs (very short text, formal non-native style writing) to confirm the system responds gracefully instead of crashing or silently misclassifying.
