@@ -160,18 +160,6 @@ Every decision made by `/submit` and every appeal made through `/appeal` gets ap
 
 **How the implementation changed from the plan:** The original plan called for a simple average of the two scores (`(groq_score + stylometric_score) / 2`). Once I actually started testing with real text, I found the stylometric score swung around more than I trusted, especially on shorter inputs, so I changed `combine_scores` to weight the Groq signal higher (60/40) instead of a straight 50/50 split.
 
-## AI usage
-
-I used AI tools in a couple of different ways while building this:
-
-1. **Generating first-pass code from my planning doc.** For Milestones 3 and 4, I used AI to turn the design I'd already written in `planning.md` into actual working code — the `/submit` and `/appeal` routes in `app.py`, the two scoring functions in `detector.py`, and the audit log read/write functions in `audit.py`.
-2. **Working through edge cases for Milestone 5.** I used AI to help me think through what could break the system (empty fields, very short submissions, rate limiting) and to help wire in the input validation and `flask-limiter` setup.
-
-I didn't just take the generated code as-is, though. Two concrete examples of things I checked and changed:
-
-- The AI's first pass at combining the two scores followed my plan's 50/50 average exactly. After testing it with a few short and borderline examples, I decided that wasn't actually the right call and changed the weighting to 60/40 myself, for the reason described above.
-- I also rewrote the wording of the transparency labels. The phrasing that came out of the first pass was more stiff and technical-sounding than what's actually in `labels.py` now — I simplified it so it reads like something a normal person would understand at a glance.
-
 ## How to run it locally
 
 **1. Clone and set up a virtual environment**
